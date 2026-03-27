@@ -1,154 +1,61 @@
-import os
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+import os
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 5671168695
+# اسم ملف التخزين
+DATA_FILE = "products.json"
 
-PRODUCTS_FILE = "products.json"
-ORDERS_FILE = "orders.json"
-
-user_state = {}
-
-def load_data(file):
-    if not os.path.exists(file):
+# تحميل المنتجات من الملف
+def load_products():
+    if not os.path.exists(DATA_FILE):
         return []
-    with open(file, "r") as f:
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def save_data(file, data):
-    with open(file, "w") as f:
-        json.dump(data, f)
+# حفظ المنتجات في الملف
+def save_products(products):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(products, f, ensure_ascii=False, indent=2)
 
-products = load_data(PRODUCTS_FILE)
-orders = load_data(ORDERS_FILE)
+# لود أول مرة
+products = load_products()
 
-# START
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("🛒 عرض المنتجات", callback_data="show")]]
-    await update.message.reply_text("🔥 أهلاً بيك في المتجر", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("🔥 أهلاً بيك في المتجر\n\nاكتب /products لعرض المنتجات")
 
-# عرض منتج
-async def show_product(query, i):
+# إضافة منتج
+async def add_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = " ".join(context.args)
+
+    if not text:
+        await update.message.reply_text("❌ اكتب المنتج بعد الأمر\nمثال:\n/add سماعة 200ج")
+        return
+
+    products.append(text)
+    save_products(products)
+
+    await update.message.reply_text("✅ تم إضافة المنتج")
+
+# عرض المنتجات
+async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not products:
-        await query.message.reply_text("❌ مفيش منتجات")
+        await update.message.reply_text("❌ مفيش منتجات")
         return
 
-    p = products[i]
+    msg = "🛒 المنتجات:\n\n"
+    for i, p in enumerate(products, 1):
+        msg += f"{i}- {p}\n"
 
-    keyboard = [
-        [InlineKeyboardButton("⬅️", callback_data=f"prev_{i}"),
-         InlineKeyboardButton("➡️", callback_data=f"next_{i}")],
-        [InlineKeyboardButton("🛍️ اطلب", callback_data=f"order_{i}")],
-        [InlineKeyboardButton("⭐ تقييم", callback_data=f"rate_{i}")]
-    ]
+    await update.message.reply_text(msg)
 
-    await query.message.delete()
-    await query.message.reply_photo(
-        photo=p["image"],
-        caption=f"{p['name']}\n💰 {p['price']}\n📄 {p['desc']}",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-# الأزرار
-async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-
-    if data == "show":
-        await show_product(query, 0)
-
-    elif data.startswith("next_"):
-        i = (int(data.split("_")[1]) + 1) % len(products)
-        await show_product(query, i)
-
-    elif data.startswith("prev_"):
-        i = (int(data.split("_")[1]) - 1) % len(products)
-        await show_product(query, i)
-
-    elif data.startswith("order_"):
-        i = int(data.split("_")[1])
-        user_state[query.message.chat_id] = {"product": products[i]["name"], "status": "جديد"}
-        await query.message.reply_text("📲 ابعت اسمك + رقمك + عنوانك")
-
-    elif data.startswith("rate_"):
-        i = int(data.split("_")[1])
-        user_state[query.message.chat_id] = {"rate_product": products[i]["name"]}
-        await query.message.reply_text("⭐ قيم من 1 لـ 5")
-
-# الرسائل
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    text = update.message.text
-
-    # تقييم
-    if chat_id in user_state and "rate_product" in user_state[chat_id]:
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"⭐ تقييم جديد\n📦 {user_state[chat_id]['rate_product']}\n⭐ {text}"
-        )
-        await update.message.reply_text("✅ شكراً على التقييم")
-        user_state.pop(chat_id)
-        return
-
-    # طلب
-    if chat_id in user_state and "product" in user_state[chat_id]:
-        order = user_state[chat_id]
-        order["info"] = text
-        order["id"] = len(orders)
-
-        orders.append(order)
-        save_data(ORDERS_FILE, orders)
-
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"🔥 طلب #{order['id']}\n📦 {order['product']}\n👤 {text}\n📊 الحالة: {order['status']}"
-        )
-
-        await update.message.reply_text("💰 حول على الرقم: 010XXXXXXXX\nوابعت صورة التحويل")
-        user_state.pop(chat_id)
-        return
-
-# الأدمن
-async def orders_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat_id != ADMIN_ID:
-        return
-
-    if not orders:
-        await update.message.reply_text("❌ مفيش طلبات")
-        return
-
-    text = "📦 الطلبات:\n"
-    for o in orders:
-        text += f"#{o['id']} - {o['product']} ({o['status']})\n"
-
-    await update.message.reply_text(text)
-
-async def change_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat_id != ADMIN_ID:
-        return
-
-    try:
-        oid = int(context.args[0])
-        status = context.args[1]
-
-        orders[oid]["status"] = status
-        save_data(ORDERS_FILE, orders)
-
-        await update.message.reply_text("✅ تم التحديث")
-    except:
-        await update.message.reply_text("❌ خطأ")
-
-# تشغيل
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+# تشغيل البوت
+app = ApplicationBuilder().token("8715838256:AAFb2PCSuiFTnROY5_ZdJ_KRI9BG9xEVRpw").build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("orders", orders_list))
-app.add_handler(CommandHandler("set", change_status))
+app.add_handler(CommandHandler("add", add_product))
+app.add_handler(CommandHandler("products", show_products))
 
-app.add_handler(CallbackQueryHandler(buttons))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
+print("Bot is running...")
 app.run_polling()
