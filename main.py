@@ -1,16 +1,17 @@
-import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "8715838256:AAEQ-e_RV4iv4-H5hQ-pNPsw80CJRizsYy4"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔥 البوت الجديد شغال!")
+    await update.message.reply_text("البوت شغال 🔥")
 
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("ابعتلي لينك فيديو وأنا أحمله لك 🔥")
 
-    app.add_handler(CommandHandler("start", start))
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    print("Bot is running...")
-    app.run_polling()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("help", help_command))
+
+app.run_polling()
